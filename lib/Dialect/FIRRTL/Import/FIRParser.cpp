@@ -25,6 +25,9 @@
 #include "llvm/ADT/ScopedHashTable.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/StringSwitch.h"
+#include "llvm/Support/JSON.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -59,6 +62,97 @@ static StringAttr filterUselessName(StringAttr name) {
   return isUselessName(name.getValue()) ? StringAttr() : name;
 }
 
+enum AnnotationID {
+  InlineAnnotationID,
+  NoDedupAnnotationID,
+  RunFirrtlTransformAnnotationID,
+  // An annotation that we know about, but haven't ported yet
+  UnsupportedAnnotationID,
+  // An annotation that we don't know what to do with
+  UnknownAnnotationID
+};
+
+LogicalResult
+fromJSON(llvm::json::Value &value,
+         llvm::StringMap<llvm::SmallVector<Annotation>> &annotationMap,
+         llvm::json::Path path, MLIRContext *context) {
+
+  auto findTarget =
+      [](llvm::json::Object *object) -> llvm::Optional<std::string> {
+    auto maybeTarget = object->get("target")->getAsString();
+
+    // This is a normal target. Just return it.
+    if (maybeTarget.getValue()[0] == '~')
+      return llvm::Optional<std::string>(maybeTarget->str());
+
+    // This is a legacy "named" target and is canonicalized to a target
+    // here. This converts:
+    //   Foo.Bar.Baz -> ~Foo|Bar>Baz
+    std::string newTarget = "~";
+    llvm::raw_string_ostream s(newTarget);
+    bool isModule = true;
+    for (auto a : maybeTarget.getValue()) {
+      switch (a) {
+      case '.':
+        if (isModule) {
+          s << "|";
+          isModule = false;
+          break;
+        }
+        s << ">";
+        break;
+      default:
+        s << a;
+      }
+    }
+    return llvm::Optional<std::string>(newTarget);
+  };
+
+  if (auto object = value.getAsObject()) {
+    if (auto clazz = object->get("class")) {
+      if (auto className = clazz->getAsString()) {
+        auto id =
+            llvm::StringSwitch<AnnotationID>(className.getValue())
+                .Case("firrtl.passes.InlineAnnotation", InlineAnnotationID)
+                .Case("firrtl.transforms.NoDedupAnnotation",
+                      NoDedupAnnotationID)
+                .Case("firrtl.stage.RunFirrtlTransformAnnotation",
+                      RunFirrtlTransformAnnotationID)
+                .Default(UnknownAnnotationID);
+        switch (id) {
+        case InlineAnnotationID:
+          annotationMap[findTarget(object).getValue()].push_back(
+              InlineAnnotation::get(context));
+          break;
+        case NoDedupAnnotationID:
+          annotationMap[findTarget(object).getValue()].push_back(
+              NoDedupAnnotation::get(context));
+          break;
+        case RunFirrtlTransformAnnotationID:
+          annotationMap["~"].push_back(
+              RunFirrtlTransformAnnotation::get(context));
+          break;
+        case UnsupportedAnnotationID:
+          llvm::errs() << "Unsupported annotation: " << className << "\n";
+          return failure();
+          break;
+        case UnknownAnnotationID:
+          llvm::errs() << "Unknown annotation: " << className << "\n";
+          return failure();
+          break;
+        }
+      } else {
+        return failure();
+      }
+    } else {
+      return failure();
+    }
+  } else {
+    return failure();
+  }
+  return success();
+};
+
 //===----------------------------------------------------------------------===//
 // GlobalFIRParserState
 //===----------------------------------------------------------------------===//
@@ -68,16 +162,21 @@ namespace {
 /// such as the current lexer position.  This is separated out from the parser
 /// so that individual subparsers can refer to the same state.
 struct GlobalFIRParserState {
-  GlobalFIRParserState(const llvm::SourceMgr &sourceMgr, MLIRContext *context,
-                       FIRParserOptions options)
-      : context(context), options(options), lex(sourceMgr, context),
-        curToken(lex.lexToken()) {}
+  GlobalFIRParserState(
+      const llvm::SourceMgr &sourceMgr, MLIRContext *context,
+      FIRParserOptions options,
+      llvm::StringMap<llvm::SmallVector<Annotation>> &annotationMap)
+      : context(context), options(options), annotationMap(annotationMap),
+        lex(sourceMgr, context), curToken(lex.lexToken()) {}
 
   /// The context we're parsing into.
   MLIRContext *const context;
 
   // Options that control the behavior of the parser.
   const FIRParserOptions options;
+
+  /// A mapping of targets to annotations
+  const llvm::StringMap<llvm::SmallVector<Annotation>> &annotationMap;
 
   /// The lexer for the source file we're parsing.
   FIRLexer lex;
@@ -228,6 +327,11 @@ struct FIRParser {
   ParseResult parseType(FIRRTLType &result, const Twine &message);
 
   ParseResult parseOptionalRUW(RUWAttr &result);
+
+  //===--------------------------------------------------------------------===//
+  // Annotation Utilities
+  //===--------------------------------------------------------------------===//
+  void getAnnotations(StringRef target, SmallVector<Annotation> &annotations);
 
 private:
   FIRParser(const FIRParser &) = delete;
@@ -738,6 +842,13 @@ ParseResult FIRParser::parseOptionalRUW(RUWAttr &result) {
   }
 
   return success();
+}
+
+void FIRParser::getAnnotations(StringRef target,
+                               SmallVector<Annotation> &annotations) {
+  for (auto a : state.annotationMap.lookup(target)) {
+    annotations.push_back(a);
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -2608,7 +2719,11 @@ ParseResult FIRModuleParser::parseModule(unsigned indent) {
   portList.reserve(portListAndLoc.size());
   for (auto &elt : portListAndLoc)
     portList.push_back(elt.first);
-  auto fmodule = builder.create<FModuleOp>(info.getLoc(), name, portList);
+  SmallVector<Annotation> annotations;
+  getAnnotations("~" + circuit.name().str() + "|" + name.getValue().str(),
+                 annotations);
+  auto fmodule =
+      builder.create<FModuleOp>(info.getLoc(), name, portList, annotations);
 
   // Install all of the ports into the symbol table, associated with their
   // block arguments.
@@ -2665,9 +2780,12 @@ ParseResult FIRCircuitParser::parseCircuit() {
       parseOptionalInfo(info))
     return failure();
 
+  SmallVector<Annotation> annotations;
+  getAnnotations("~", annotations);
+
   // Create the top-level circuit op in the MLIR module.
   OpBuilder b(mlirModule.getBodyRegion());
-  auto circuit = b.create<CircuitOp>(info.getLoc(), name);
+  auto circuit = b.create<CircuitOp>(info.getLoc(), name, annotations);
 
   // Parse any contained modules.
   while (true) {
@@ -2711,10 +2829,22 @@ ParseResult FIRCircuitParser::parseCircuit() {
 //===----------------------------------------------------------------------===//
 
 // Parse the specified .fir file into the specified MLIR context.
-OwningModuleRef circt::firrtl::importFIRRTL(SourceMgr &sourceMgr,
-                                            MLIRContext *context,
-                                            FIRParserOptions options) {
+OwningModuleRef
+circt::firrtl::importFIRRTL(SourceMgr &sourceMgr,
+                            llvm::Optional<llvm::json::Value> annotations,
+                            MLIRContext *context, FIRParserOptions options) {
   auto sourceBuf = sourceMgr.getMemoryBuffer(sourceMgr.getMainFileID());
+
+  llvm::json::Path::Root root;
+  llvm::StringMap<llvm::SmallVector<Annotation>> annotationMap;
+  if (annotations) {
+    for (auto a : *annotations.getValue().getAsArray()) {
+      if (failed(fromJSON(a, annotationMap, root, context))) {
+        llvm::errs() << "Failed to parse annotation file...\n";
+        return {};
+      }
+    }
+  }
 
   context->loadDialect<FIRRTLDialect>();
 
@@ -2723,7 +2853,7 @@ OwningModuleRef circt::firrtl::importFIRRTL(SourceMgr &sourceMgr,
       FileLineColLoc::get(sourceBuf->getBufferIdentifier(), /*line=*/0,
                           /*column=*/0, context)));
 
-  GlobalFIRParserState state(sourceMgr, context, options);
+  GlobalFIRParserState state(sourceMgr, context, options, annotationMap);
   if (FIRCircuitParser(state, *module).parseCircuit())
     return nullptr;
 
@@ -2738,6 +2868,7 @@ OwningModuleRef circt::firrtl::importFIRRTL(SourceMgr &sourceMgr,
 void circt::firrtl::registerFromFIRRTLTranslation() {
   static mlir::TranslateToMLIRRegistration fromFIR(
       "import-firrtl", [](llvm::SourceMgr &sourceMgr, MLIRContext *context) {
-        return importFIRRTL(sourceMgr, context);
+        return importFIRRTL(sourceMgr, llvm::Optional<llvm::json::Value>(),
+                            context);
       });
 }

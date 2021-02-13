@@ -13,6 +13,7 @@
 #include "circt/Dialect/FIRRTL/FIRRTLDialect.h"
 #include "circt/Dialect/FIRRTL/FIRRTLOps.h"
 #include "mlir/IR/DialectImplementation.h"
+#include "llvm/ADT/TypeSwitch.h"
 
 using namespace circt;
 using namespace firrtl;
@@ -139,12 +140,46 @@ FIRRTLDialect::FIRRTLDialect(MLIRContext *context)
 
   // Register interface implementations.
   addInterfaces<FIRRTLOpAsmDialectInterface>();
+
+  // Register attributes
+  addAttributes<InlineAnnotation, NoDedupAnnotation,
+                RunFirrtlTransformAnnotation>();
 }
 
 FIRRTLDialect::~FIRRTLDialect() {}
 
 void FIRRTLDialect::printType(Type type, DialectAsmPrinter &os) const {
   type.cast<FIRRTLType>().print(os.getStream());
+}
+
+void FIRRTLDialect::printAttribute(Attribute attribute,
+                                   DialectAsmPrinter &os) const {
+  std::string str = TypeSwitch<Attribute, std::string>(attribute)
+                        .Case<InlineAnnotation, NoDedupAnnotation,
+                              RunFirrtlTransformAnnotation>(
+                            [](auto a) { return a.getClassName(); });
+  os << str;
+}
+
+Attribute FIRRTLDialect::parseAttribute(DialectAsmParser &parser, Type type) const {
+  StringRef name;
+  if (parser.parseKeyword(&name))
+    return Attribute();
+
+  auto *context = parser.getBuilder().getContext();
+
+  if (name == "stage.RunFirrtlTransformAnnotation")
+    return RunFirrtlTransformAnnotation::get(context);
+
+  if (name == "passes.InlineAnnotation")
+    return InlineAnnotation::get(context);
+
+  if (name == "transforms.NoDedupAnnotation")
+    return NoDedupAnnotation::get(context);
+
+  parser.emitError(parser.getNameLoc(), "Unknown annotation ") << name;
+
+  return Attribute();
 }
 
 /// Registered hook to materialize a single constant operation from a given

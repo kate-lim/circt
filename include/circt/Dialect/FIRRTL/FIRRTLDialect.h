@@ -31,6 +31,9 @@ public:
   Type parseType(DialectAsmParser &parser) const override;
   void printType(Type, DialectAsmPrinter &) const override;
 
+  Attribute parseAttribute(DialectAsmParser &parser, Type type) const override;
+  void printAttribute(Attribute, DialectAsmPrinter &) const override;
+
   Operation *materializeConstant(OpBuilder &builder, Attribute value, Type type,
                                  Location loc) override;
 

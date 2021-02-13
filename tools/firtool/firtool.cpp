@@ -30,6 +30,7 @@
 #include "mlir/Transforms/Passes.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/JSON.h"
 #include "llvm/Support/ToolOutputFile.h"
 
 using namespace llvm;
@@ -87,9 +88,15 @@ static cl::opt<bool>
                  cl::desc("Run the verifier after each transformation pass"),
                  cl::init(true));
 
+static cl::opt<std::string>
+    inputAnnotationFilename("annotation-file",
+                            cl::desc("Optional input annotation file"),
+                            cl::value_desc("filename"));
+
 /// Process a single buffer of the input.
 static LogicalResult
 processBuffer(std::unique_ptr<llvm::MemoryBuffer> ownedBuffer,
+              llvm::Optional<llvm::json::Value> annotations,
               raw_ostream &os) {
   MLIRContext context;
 
@@ -112,7 +119,7 @@ processBuffer(std::unique_ptr<llvm::MemoryBuffer> ownedBuffer,
   if (inputFormat == InputFIRFile) {
     firrtl::FIRParserOptions options;
     options.ignoreInfoLocators = ignoreFIRLocations;
-    module = importFIRRTL(sourceMgr, &context, options);
+    module = importFIRRTL(sourceMgr, annotations, &context, options);
 
     // If we parsed a FIRRTL file and have optimizations enabled, clean it up.
     if (!disableOptimization) {
@@ -199,7 +206,24 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (failed(processBuffer(std::move(input), output->os())))
+  // Parse the input annotation file, if one was specified.
+  llvm::Optional<llvm::json::Value> annotations;
+  if (inputAnnotationFilename.getNumOccurrences()) {
+    auto annotationBuffer = openInputFile(inputAnnotationFilename, &errorMessage);
+    if (!annotationBuffer) {
+      llvm::errs() << errorMessage << "\n";
+      return 1;
+    }
+
+    auto foo = llvm::json::parse((*annotationBuffer).getBuffer());
+    if (auto Err = foo.takeError()) {
+      llvm::errs() << "Failed to parse JSON...\n";
+      return 1;
+    }
+    annotations.emplace(foo.get());
+  }
+
+  if (failed(processBuffer(std::move(input), annotations, output->os())))
     return 1;
 
   output->keep();

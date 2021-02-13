@@ -40,5 +40,6 @@ include "FIRRTLStructure.td"
 include "FIRRTLDeclarations.td"
 include "FIRRTLExpressions.td"
 include "FIRRTLStatements.td"
+include "FIRRTLAnnotations.td"
 
 #endif // FIRRTL_TD
