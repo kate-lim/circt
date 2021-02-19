@@ -216,7 +216,7 @@ int main(int argc, char **argv) {
     }
 
     auto foo = llvm::json::parse((*annotationBuffer).getBuffer());
-    if (auto Err = foo.takeError()) {
+    if (auto err = foo.takeError()) {
       llvm::errs() << "Failed to parse JSON...\n";
       return 1;
     }

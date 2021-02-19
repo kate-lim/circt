@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef CIRCT_DIALECT_FIRRTL_ANNOTATIONS_H
-#define CIRCT_DIALECT_FIRRTL_ANNOTATIONS_H
+#ifndef CIRCT_DIALECT_FIRRTL_FIRRTLANNOTATIONS_H
+#define CIRCT_DIALECT_FIRRTL_FIRRTLANNOTATIONS_H
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
@@ -63,4 +63,4 @@ public:
 } // namespace firrtl
 } // namespace circt
 
-#endif // CIRCT_DIALECT_FIRRTL_ANNOTATIONS_H
+#endif // #ifndef CIRCT_DIALECT_FIRRTL_FIRRTLANNOTATIONS_H
