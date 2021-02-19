@@ -63,4 +63,4 @@ public:
 } // namespace firrtl
 } // namespace circt
 
-#endif // #ifndef CIRCT_DIALECT_FIRRTL_FIRRTLANNOTATIONS_H
+#endif // CIRCT_DIALECT_FIRRTL_FIRRTLANNOTATIONS_H
