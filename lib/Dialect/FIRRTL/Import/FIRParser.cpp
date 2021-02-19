@@ -129,8 +129,9 @@ fromJSON(llvm::json::Value &value,
               NoDedupAnnotation::get(context));
           break;
         case RunFirrtlTransformAnnotationID:
-          annotationMap["~"].push_back(
-              RunFirrtlTransformAnnotation::get(context));
+          annotationMap["~"].push_back(RunFirrtlTransformAnnotation::get(
+              context,
+              object->get("transform")->getAsString().getValue().str()));
           break;
         case UnsupportedAnnotationID:
           llvm::errs() << "Unsupported annotation: " << className << "\n";

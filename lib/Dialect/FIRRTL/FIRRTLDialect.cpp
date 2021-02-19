@@ -154,10 +154,13 @@ void FIRRTLDialect::printType(Type type, DialectAsmPrinter &os) const {
 
 void FIRRTLDialect::printAttribute(Attribute attribute,
                                    DialectAsmPrinter &os) const {
-  std::string str = TypeSwitch<Attribute, std::string>(attribute)
-                        .Case<InlineAnnotation, NoDedupAnnotation,
-                              RunFirrtlTransformAnnotation>(
-                            [](auto a) { return a.getClassName(); });
+  std::string str =
+      TypeSwitch<Attribute, std::string>(attribute)
+          .Case<InlineAnnotation, NoDedupAnnotation>(
+              [](auto a) { return a.getClassName(); })
+          .Case<RunFirrtlTransformAnnotation>([](auto a) {
+            return a.getClassName() + "<" + a.getTransformName() + ">";
+          });
   os << str;
 }
 
@@ -169,8 +172,13 @@ Attribute FIRRTLDialect::parseAttribute(DialectAsmParser &parser,
 
   auto *context = parser.getBuilder().getContext();
 
-  if (name == "stage.RunFirrtlTransformAnnotation")
-    return RunFirrtlTransformAnnotation::get(context);
+  if (name == "stage.RunFirrtlTransformAnnotation") {
+    StringRef transform;
+    if (parser.parseLess() || parser.parseKeyword(&transform) ||
+        parser.parseGreater())
+      return Attribute();
+    return RunFirrtlTransformAnnotation::get(context, transform.str());
+  }
 
   if (name == "passes.InlineAnnotation")
     return InlineAnnotation::get(context);

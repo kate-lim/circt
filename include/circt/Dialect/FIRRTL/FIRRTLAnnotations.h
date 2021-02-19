@@ -49,15 +49,46 @@ public:
   std::string getClassName() { return className; }
 };
 
+struct StringAttributeStorage : public mlir::AttributeStorage {
+
+  StringAttributeStorage(std::string value) : value(value) {}
+
+  using KeyTy = std::string;
+
+  bool operator==(const KeyTy &key) const { return key == value; };
+
+  static llvm::hash_code hashKey(const KeyTy &key) {
+    return llvm::hash_value(key);
+  };
+
+  static KeyTy getKey(std::string value) { return value; };
+
+  static StringAttributeStorage *
+  construct(mlir::AttributeStorageAllocator &allocator, const KeyTy &key) {
+    return new (allocator.allocate<StringAttributeStorage>())
+        StringAttributeStorage(key);
+  };
+
+  std::string value;
+};
+
 class RunFirrtlTransformAnnotation
     : public mlir::Attribute::AttrBase<RunFirrtlTransformAnnotation, Annotation,
-                                       mlir::AttributeStorage> {
+                                       StringAttributeStorage> {
+
   std::string className = "stage.RunFirrtlTransformAnnotation";
 
 public:
   using Base::Base;
 
+  static RunFirrtlTransformAnnotation get(mlir::MLIRContext *context,
+                                          std::string value) {
+    return Base::get(context, value);
+  };
+
   std::string getClassName() { return className; }
+
+  std::string getTransformName() { return getImpl()->value; }
 };
 
 } // namespace firrtl
