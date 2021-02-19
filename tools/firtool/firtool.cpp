@@ -96,8 +96,7 @@ static cl::opt<std::string>
 /// Process a single buffer of the input.
 static LogicalResult
 processBuffer(std::unique_ptr<llvm::MemoryBuffer> ownedBuffer,
-              llvm::Optional<llvm::json::Value> annotations,
-              raw_ostream &os) {
+              llvm::Optional<llvm::json::Value> annotations, raw_ostream &os) {
   MLIRContext context;
 
   // Register our dialects.
@@ -209,7 +208,8 @@ int main(int argc, char **argv) {
   // Parse the input annotation file, if one was specified.
   llvm::Optional<llvm::json::Value> annotations;
   if (inputAnnotationFilename.getNumOccurrences()) {
-    auto annotationBuffer = openInputFile(inputAnnotationFilename, &errorMessage);
+    auto annotationBuffer =
+        openInputFile(inputAnnotationFilename, &errorMessage);
     if (!annotationBuffer) {
       llvm::errs() << errorMessage << "\n";
       return 1;

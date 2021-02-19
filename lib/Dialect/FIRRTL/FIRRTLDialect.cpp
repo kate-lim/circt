@@ -161,7 +161,8 @@ void FIRRTLDialect::printAttribute(Attribute attribute,
   os << str;
 }
 
-Attribute FIRRTLDialect::parseAttribute(DialectAsmParser &parser, Type type) const {
+Attribute FIRRTLDialect::parseAttribute(DialectAsmParser &parser,
+                                        Type type) const {
   StringRef name;
   if (parser.parseKeyword(&name))
     return Attribute();

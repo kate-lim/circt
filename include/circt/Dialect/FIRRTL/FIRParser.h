@@ -34,10 +34,10 @@ struct FIRParserOptions {
   bool ignoreInfoLocators = false;
 };
 
-mlir::OwningModuleRef importFIRRTL(llvm::SourceMgr &sourceMgr,
-                                   llvm::Optional<llvm::json::Value> annotations,
-                                   mlir::MLIRContext *context,
-                                   FIRParserOptions options = {});
+mlir::OwningModuleRef
+importFIRRTL(llvm::SourceMgr &sourceMgr,
+             llvm::Optional<llvm::json::Value> annotations,
+             mlir::MLIRContext *context, FIRParserOptions options = {});
 
 void registerFromFIRRTLTranslation();
 
